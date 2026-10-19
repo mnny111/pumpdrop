@@ -1,7 +1,8 @@
-import {Connection,Keypair} from '@solana/web3.js';
-import {readFileSync,openSync,closeSync,unlinkSync} from 'node:fs';
+import {Connection} from '@solana/web3.js';
+import {openSync,closeSync,unlinkSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {loadTreasury} from './wallet.mjs';
 import {Store} from './store.mjs';
 import {CollectorClient,verifyDelivery} from './collector.mjs';
 import {PumpFees} from './pump.mjs';
@@ -16,7 +17,7 @@ export class LiveWorker{
   this.store=new Store(resolve(this.config.dataDir,'pumpdrop.sqlite'));this.lockPath=resolve(this.config.dataDir,'worker.lock');this.lock=openSync(this.lockPath,'wx');
   process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
   this.state=this.store.get('worker',this.state);const savedIdentity=this.store.get('identity');
-  const raw=JSON.parse(readFileSync(this.config.keyFile,'utf8'));if(!Array.isArray(raw)||raw.length!==64||raw.some(x=>!Number.isInteger(x)||x<0||x>255))throw Error('Treasury file must contain a Solana 64-byte JSON keypair');this.signer=Keypair.fromSecretKey(Uint8Array.from(raw));
+  this.signer=loadTreasury(this.config);
   const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};if(savedIdentity&&JSON.stringify(savedIdentity)!==JSON.stringify(identity))throw Error('Database belongs to a different token or treasury');this.store.set('identity',identity);
   this.connection=new Connection(this.config.rpc,'confirmed');if(await this.connection.getGenesisHash()!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp')throw Error('Mainnet RPC required');
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);await this.cc.validateKey();await this.pump.inspect();this.started=true;

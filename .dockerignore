@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!.npmrc
+!vendor/
+!vendor/**
+!backend/
+!backend/**
+!dist/
+!dist/**
+!server.mjs

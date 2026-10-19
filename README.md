@@ -2,6 +2,37 @@
 
 A Solana / Pump.fun creator-fee-funded Collector Crypt pack opener. One shared page, one 60-second round, one token-balance-weighted recipient per real pack.
 
+## Railway deployment
+
+1. Create a Railway service from this GitHub repository on branch main. The committed Dockerfile pins Node 24 and railway.json configures the health check, one replica and restart policy. Leave custom build/start/pre-deploy commands empty. Remove any previous custom command that writes a keypair file.
+2. Attach a persistent volume at /data. The app automatically uses RAILWAY_VOLUME_MOUNT_PATH; leave DATA_DIR unset. Live mode refuses to run on Railway without volume-backed storage.
+3. Add the variables below using Railway's Raw Editor. Fill the empty required values after launch. Add TREASURY_KEYPAIR_JSON separately as a private variable containing the dedicated creator wallet's 64-number JSON keypair array. It is loaded directly in memory and never written to a wallet file. Leave TREASURY_KEYPAIR_PATH unset.
+4. Deploy and Generate Domain in Railway networking. With LIVE_ENABLED=false the site runs without signing. Set LIVE_ENABLED=true only when ready for real purchases, initially capped at one $25 pack per UTC day. No custom start command is required.
+
+```dotenv
+LIVE_ENABLED=false
+MAIN_TOKEN_MINT=
+SOLANA_RPC_URL=
+COLLECTOR_CRYPT_API_KEY=
+JUPITER_API_KEY=
+MAX_PACK_USD=25
+DAILY_PACK_BUDGET_USD=25
+MAX_SWAP_SOL=1
+MIN_SOL_RESERVE=0.02
+SLIPPAGE_BPS=50
+MIN_HOLDER_RAW=1
+EXCLUDED_HOLDERS=
+DEDICATED_CREATOR_CONFIRMED=false
+```
+
+The $25 limits above are optional first-test limits, not the permanent pack-selection policy. To allow all six pack tiers, set MAX_PACK_USD=5000 and choose DAILY_PACK_BUDGET_USD of at least 5000 (or higher if you want several expensive packs in one UTC day). Set MAX_SWAP_SOL high enough for your chosen pack tier at the current quote. The worker still purchases only the highest affordable available pack using collected creator fees and retains the remainder.
+
+Set DEDICATED_CREATOR_CONFIRMED=true only for a creator wallet dedicated to this token. MAX_SWAP_SOL=1 is an example ceiling, not a target spend. Add excluded wallets as comma-separated addresses. Fund the wallet's transaction reserve separately. Railway supplies PORT automatically.
+
+Optional read-only diagnostics: run npm run preflight through Railway SSH with live mode disabled. Do not use a pre-deploy command: Railway volumes are available only at runtime. The health check reports HTTP availability; the ready field separately reports automation readiness. Keep the service continuously running (do not enable serverless sleeping).
+
+A persistent volume is a one-time Railway UI setup; railway.json does not create it. The actual Railway Docker build and first funded pack still require validation on Railway. Local startup tests do not establish mainnet execution.
+
 ## What is implemented
 
 - Live Collector Crypt catalogue, official pack art, prices and machine availability.
@@ -19,7 +50,7 @@ A Solana / Pump.fun creator-fee-funded Collector Crypt pack opener. One shared p
 
 1. Use Node 24 LTS. Run `npm ci`, copy `.env.example` to `.env`, and run `npm start`.
 2. After launching your token, set `MAIN_TOKEN_MINT` to its public mint address.
-3. Use a **dedicated direct creator wallet** for this token and put its Solana JSON keypair file outside the repository. Set `TREASURY_KEYPAIR_PATH` to that file path. Never paste a seed/private key into chat or browser code. The worker verifies that this signer is the curve and pool creator.
+3. Use a **dedicated direct creator wallet** for this token and put its Solana JSON keypair file outside the repository. Set `TREASURY_KEYPAIR_PATH` to that file path, or use `TREASURY_KEYPAIR_JSON` directly as a private server environment variable. Set only one wallet source. Never paste a seed/private key into chat or browser code. The worker verifies that this signer is the curve and pool creator.
 4. Set a mainnet `SOLANA_RPC_URL` that supports full `getProgramAccounts` responses and transaction history. A top-holder-only API is not sufficient.
 5. Obtain `COLLECTOR_CRYPT_API_KEY` through Collector Crypt's partner flow and `JUPITER_API_KEY` through Jupiter's developer portal. Keys remain server-side. The Collector key is validated against an authenticated endpoint before buying.
 6. Set explicit `MAX_PACK_USD`, `DAILY_PACK_BUDGET_USD`, `MAX_SWAP_SOL`, `MIN_SOL_RESERVE`, `EXCLUDED_HOLDERS` and `MIN_HOLDER_RAW`. The daily limit resets at UTC midnight and reserves a pack's cost before purchase. Failed/uncertain jobs do not free the reserved budget automatically.
@@ -44,7 +75,7 @@ The worker halts on uncertain financial outcomes. Automated recovery for expired
 
 ## Verification and limits
 
-26 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+30 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 No token has launched, no treasury key or API credentials have been configured, and **no funded end-to-end collection, swap, pack purchase or NFT delivery has been executed**. Tests using mocks are not evidence of mainnet execution. Run a controlled first transaction after configuration before treating this as production-verified.
 
