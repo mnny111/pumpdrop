@@ -1,3 +1,4 @@
+import {requireMainnet} from './network.mjs';
 import {Connection} from '@solana/web3.js';
 import {openSync,closeSync,unlinkSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -19,7 +20,7 @@ export class LiveWorker{
   this.state=this.store.get('worker',this.state);const savedIdentity=this.store.get('identity');
   this.startupStage='wallet';this.signer=loadTreasury(this.config);
   this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};if(savedIdentity&&JSON.stringify(savedIdentity)!==JSON.stringify(identity))throw Error('Database belongs to a different token or treasury');this.store.set('identity',identity);
-  this.startupStage='rpc';this.connection=new Connection(this.config.rpc,'confirmed');if(await this.connection.getGenesisHash()!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp')throw Error('Mainnet RPC required');
+  this.startupStage='rpc';this.connection=new Connection(this.config.rpc,'confirmed');await requireMainnet(this.connection);
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
