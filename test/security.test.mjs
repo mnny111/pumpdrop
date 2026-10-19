@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {Keypair,PublicKey,SystemProgram} from '@solana/web3.js';
+import {getAssociatedTokenAddressSync,NATIVE_MINT} from '@solana/spl-token';
+import anchor from '@coral-xyz/anchor';
+import {routeCoder} from '../backend/swap-policy.mjs';
+import {validateSwap,USDC,Transactions} from '../backend/transactions.mjs';
+import {loadConfig} from '../backend/config.mjs';
+import {verifyDelivery} from '../backend/collector.mjs';
+import {Store} from '../backend/store.mjs';
+const {BN}=anchor;
+const wallet=Keypair.generate().publicKey;
+const policy={payer:wallet.toBase58(),cost:25000000n,maxInput:100500000n,slippage:50};
+function route(){const keys=Array.from({length:13},()=>({pubkey:Keypair.generate().publicKey,isSigner:false,isWritable:true}));
+ for(const [i,key] of Object.entries({2:wallet,3:getAssociatedTokenAddressSync(NATIVE_MINT,wallet),6:getAssociatedTokenAddressSync(USDC,wallet),7:NATIVE_MINT,8:USDC}))keys[i].pubkey=key;keys[2].isSigner=true;
+ return {programId:new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4'),keys,data:routeCoder.encode('sharedAccountsExactOutRoute',{id:0,routePlan:[{swap:{Saber:{}},percent:100,inputIndex:0,outputIndex:1}],outAmount:new BN('25000000'),quotedInAmount:new BN('100000000'),slippageBps:50,platformFeeBps:0})};}
+test('swap policy accepts bounded exact-out and rejects substituted recipient',()=>{const ix=route(),message={payerKey:wallet,instructions:[ix]};validateSwap(message,policy);ix.keys[6].pubkey=Keypair.generate().publicKey;assert.throws(()=>validateSwap(message,policy),/account mismatch/)});
+test('swap policy rejects oversized input, wrong output, appended bytes and extra SOL transfer',()=>{const ix=route(),message={payerKey:wallet,instructions:[ix]};assert.throws(()=>validateSwap(message,{...policy,maxInput:1n}),/quote/);assert.throws(()=>validateSwap(message,{...policy,cost:1n}),/quote/);ix.data=Buffer.concat([ix.data,Buffer.from([0])]);assert.throws(()=>validateSwap(message,policy),/malformed/);message.instructions=[route(),SystemProgram.transfer({fromPubkey:wallet,toPubkey:Keypair.generate().publicKey,lamports:1})];assert.throws(()=>validateSwap(message,policy),/Unexpected/)});
+test('confirmed but unfinalized transaction neither advances nor rebroadcasts',async()=>{const db=new Store(':memory:');db.putTx('x',{signature:'saved',status:'signed'});const c={getSignatureStatuses:async()=>({value:[{confirmationStatus:'confirmed'}]})};assert.equal(await new Transactions(c,Keypair.generate(),db).execute('x',()=>assert.fail('rebuild')),null);assert.equal(db.tx('x').status,'signed');db.close()});
+test('configuration rejects plaintext RPC, typo enable and imprecise limits',()=>{for(const env of [{SOLANA_RPC_URL:'http://example.com'},{LIVE_ENABLED:'TRUE'},{MAX_PACK_USD:'1e3'},{MAX_SWAP_SOL:'0.123456789'}])assert.throws(()=>loadConfig(env))});
+test('delivery is bound to the exact purchase signature',()=>{assert.throws(()=>verifyDelivery({pack:{wallet:'payer',pack_type:'pack',turbo_mode:false,transaction_signature:'other'}},{payer:'payer',code:'pack',purchaseSignature:'paid'}),/signature/)});
+test('patched RPC package and web3 client load together',()=>{const require=createRequire(import.meta.url);assert.ok(require('jayson').Client);assert.ok(require('@solana/web3.js').Connection)});

@@ -1,0 +1,12 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+*.keypair.json
+
+.openai/
+*.sqlite*
+worker.lock
+*.pem
+*.key
