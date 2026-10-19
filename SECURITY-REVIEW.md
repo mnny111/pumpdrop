@@ -19,6 +19,10 @@ This is a source review with local regression tests, not an independent audit or
 
 26 local tests cover weighted integer selection, round selection/carryover, malicious route substitutions, amount bounds, trailing instruction data, finality, transaction reuse, purchase identity, configuration rejection, RPC package compatibility and mocked purchase-to-delivery flow. Syntax checks pass. The missing-environment preflight exits unsuccessfully and lists missing variable names without revealing values.
 
+## Optional Collector Crypt authentication
+
+Standard public pack operations may run without COLLECTOR_CRYPT_API_KEY, as documented by Collector Crypt. Blank keys omit the authentication header and skip the partner-only startup check. A supplied key must still validate; authentication failures do not silently downgrade to unauthenticated mode. Payment validation, recipient selection, finality, and delivery checks are unchanged. Local regression tests cover both modes; funded execution remains unverified.
+
 ## Operational requirements and unverified boundaries
 
 The token and credentials have not been supplied, so creator-fee collection, authenticated route construction, real pack purchase and holder delivery have not been tested end to end. Start with a $25 maximum pack and $25 daily budget, observe one finalized delivery, then raise limits deliberately.

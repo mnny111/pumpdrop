@@ -13,7 +13,6 @@ A Solana / Pump.fun creator-fee-funded Collector Crypt pack opener. One shared p
 LIVE_ENABLED=false
 MAIN_TOKEN_MINT=
 SOLANA_RPC_URL=
-COLLECTOR_CRYPT_API_KEY=
 JUPITER_API_KEY=
 MAX_PACK_USD=25
 DAILY_PACK_BUDGET_USD=25
@@ -32,6 +31,8 @@ Set DEDICATED_CREATOR_CONFIRMED=true only for a creator wallet dedicated to this
 Optional read-only diagnostics: run npm run preflight through Railway SSH with live mode disabled. Do not use a pre-deploy command: Railway volumes are available only at runtime. The health check reports HTTP availability; the ready field separately reports automation readiness. Keep the service continuously running (do not enable serverless sleeping).
 
 A persistent volume is a one-time Railway UI setup; railway.json does not create it. The actual Railway Docker build and first funded pack still require validation on Railway. Local startup tests do not establish mainnet execution.
+
+Collector Crypt works without a partner key for these public packs. Without a key, purchases use standard cc- memos and do not receive partner attribution or private-machine access. PumpDrop still tracks each purchase by its unique memo and verifies payment and recipient delivery.
 
 ## What is implemented
 
@@ -52,7 +53,7 @@ A persistent volume is a one-time Railway UI setup; railway.json does not create
 2. After launching your token, set `MAIN_TOKEN_MINT` to its public mint address.
 3. Use a **dedicated direct creator wallet** for this token and put its Solana JSON keypair file outside the repository. Set `TREASURY_KEYPAIR_PATH` to that file path, or use `TREASURY_KEYPAIR_JSON` directly as a private server environment variable. Set only one wallet source. Never paste a seed/private key into chat or browser code. The worker verifies that this signer is the curve and pool creator.
 4. Set a mainnet `SOLANA_RPC_URL` that supports full `getProgramAccounts` responses and transaction history. A top-holder-only API is not sufficient.
-5. Obtain `COLLECTOR_CRYPT_API_KEY` through Collector Crypt's partner flow and `JUPITER_API_KEY` through Jupiter's developer portal. Keys remain server-side. The Collector key is validated against an authenticated endpoint before buying.
+5. Obtain `JUPITER_API_KEY` through Jupiter's developer portal. `COLLECTOR_CRYPT_API_KEY` is optional: leave it unset or blank for standard public pack purchases. If supplied, it is validated against the authenticated partner endpoint; an invalid supplied key stops startup. Keys remain server-side.
 6. Set explicit `MAX_PACK_USD`, `DAILY_PACK_BUDGET_USD`, `MAX_SWAP_SOL`, `MIN_SOL_RESERVE`, `EXCLUDED_HOLDERS` and `MIN_HOLDER_RAW`. The daily limit resets at UTC midnight and reserves a pack's cost before purchase. Failed/uncertain jobs do not free the reserved budget automatically.
 7. Set `DEDICATED_CREATOR_CONFIRMED=true` only if this creator wallet is dedicated to this token: Pump creator vaults can aggregate rewards from other coins created by the same wallet.
 8. Stop any running worker and run `npm run preflight`. This checks configuration, authority, API access, eligible holders and quotes without signing or sending transactions. Then validate the flow with one small real pack before unattended operation. `LIVE_ENABLED=true` enables signing and real spending automatically. Defaults are disabled, with blank spending limits. A mint address alone does not enable trading.
@@ -75,7 +76,7 @@ The worker halts on uncertain financial outcomes. Automated recovery for expired
 
 ## Verification and limits
 
-30 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+34 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 No token has launched, no treasury key or API credentials have been configured, and **no funded end-to-end collection, swap, pack purchase or NFT delivery has been executed**. Tests using mocks are not evidence of mainnet execution. Run a controlled first transaction after configuration before treating this as production-verified.
 

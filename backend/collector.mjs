@@ -6,10 +6,11 @@ export async function requestJson(url,{key,body,fetchImpl=fetch}={}){
  return r.json();
 }
 export class CollectorClient{
- constructor({key='',fetchImpl=fetch}={}){this.key=key;this.fetchImpl=fetchImpl}
+ constructor({key='',fetchImpl=fetch}={}){this.key=key.trim();this.fetchImpl=fetchImpl}
  call(path,body){return requestJson(CC_ORIGIN+path,{key:this.key,body,fetchImpl:this.fetchImpl})}
  async machines(){const [catalog,status]=await Promise.all([this.call('/api/machines'),this.call('/api/status')]);if(!Array.isArray(catalog.machines)||!Array.isArray(status.gachas))throw Error('Invalid Collector Crypt catalogue');return Object.entries(PACK_CODES).map(([id,code])=>{const m=catalog.machines.find(m=>m.code===code);if(!m)return {id,code,available:false};const active=status.gachas.find(g=>g.code===code);return {id,code,name:m.name,price:m.price,stock:m.stock,odds:m.odds,image:new URL(m.imageNobg||m.thumbnailUrl,CC_ORIGIN).href,available:status.machineStatus==='running'&&active?.isOpen===true,checkedAt:Date.now()}})}
- async validateKey(){if(!this.key)throw Error('COLLECTOR_CRYPT_API_KEY is required');await this.call('/api/v1/machines')}
+ // Standard play endpoints allow unauthenticated requests. Validate only supplied partner keys.
+ async validateKey(){if(!this.key)return;await this.call('/api/v1/machines')}
  async generate({payer,winner,code}){if(!Object.values(PACK_CODES).includes(code))throw Error('Pack not in approved catalogue');const r=await this.call('/api/generatePack',{playerAddress:payer,altPlayerAddress:winner,packType:code,turbo:false});if(typeof r.memo!=='string'||typeof r.transaction!=='string')throw Error('Invalid generated pack');return r}
  status(memo){return this.call('/api/pack/status?'+new URLSearchParams({memo}))}
  open(memo){return this.call('/api/openPack',{memo})}
