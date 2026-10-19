@@ -14,13 +14,13 @@ const lamports=n=>BigInt(Math.ceil(n*1e9));
 export class LiveWorker{
  constructor(config){this.config=config;this.cc=new CollectorClient({key:config.ccKey});this.catalog=[];this.catalogAt=0;this.catalogError=null;this.busy=false;this.state={feeBudget:'0',job:null,history:[],daily:{},pendingFee:null,lastFeeAt:0,nextRoundAt:nextRoundAt()};this.message='Waiting for launch configuration';this.started=false}
  async init(){if(!this.config.enabled||this.config.missing.length)return;
-  this.store=new Store(resolve(this.config.dataDir,'pumpdrop.sqlite'));this.lockPath=resolve(this.config.dataDir,'worker.lock');this.lock=openSync(this.lockPath,'wx');
+  this.startupStage='storage';this.store=new Store(resolve(this.config.dataDir,'pumpdrop.sqlite'));this.lockPath=resolve(this.config.dataDir,'worker.lock');this.startupStage='lock';this.lock=openSync(this.lockPath,'wx');
   process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
   this.state=this.store.get('worker',this.state);const savedIdentity=this.store.get('identity');
-  this.signer=loadTreasury(this.config);
-  const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};if(savedIdentity&&JSON.stringify(savedIdentity)!==JSON.stringify(identity))throw Error('Database belongs to a different token or treasury');this.store.set('identity',identity);
-  this.connection=new Connection(this.config.rpc,'confirmed');if(await this.connection.getGenesisHash()!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp')throw Error('Mainnet RPC required');
-  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);await this.cc.validateKey();await this.pump.inspect();this.started=true;
+  this.startupStage='wallet';this.signer=loadTreasury(this.config);
+  this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};if(savedIdentity&&JSON.stringify(savedIdentity)!==JSON.stringify(identity))throw Error('Database belongs to a different token or treasury');this.store.set('identity',identity);
+  this.startupStage='rpc';this.connection=new Connection(this.config.rpc,'confirmed');if(await this.connection.getGenesisHash()!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp')throw Error('Mainnet RPC required');
+  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
  async refreshCatalog(){try{this.catalog=await this.cc.machines();this.catalogAt=Date.now();this.catalogError=null}catch{this.catalogError='Collector Crypt catalogue unavailable'}}
