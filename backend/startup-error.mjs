@@ -8,7 +8,12 @@ const known=new Set([
  'Fee-sharing token detected; this worker requires a direct creator treasury',
  'Treasury signer is not the token creator',
  'This worker requires a SOL-quoted Pump.fun token',
- 'PumpSwap creator differs from treasury'
+ 'PumpSwap creator differs from treasury',
+ 'Treasury signer is not the token creator or a configured fee sharing recipient',
+ 'Treasury wallet is not a recipient in the token fee sharing config',
+ 'Fee sharing config missing or invalid',
+ 'Fee sharing config mint mismatch',
+ 'Invalid fee sharing allocation'
 ]);
 const hints={
  storage:'Check the persistent volume and its write permissions.',

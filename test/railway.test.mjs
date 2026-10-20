@@ -49,7 +49,7 @@ test('default server starts in preview mode and never exposes the base58 private
  const child=spawn(process.execPath,['--import','data:text/javascript,globalThis.fetch=async()=>{throw new Error("offline test")}', 'server.mjs'],{cwd:new URL('..',import.meta.url),env,stdio:['ignore','pipe','pipe']});
  let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
  try{
-  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Startup timed out')),10000);child.stdout.on('data',()=>{if(output.includes('PumpDrop:')){clearTimeout(timeout);resolve()}});child.once('exit',()=>{clearTimeout(timeout);reject(Error('Server exited before listening'))});});
+  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Startup timed out')),10000);child.stdout.on('data',()=>{if(output.includes('PumpCards:')){clearTimeout(timeout);resolve()}});child.once('exit',()=>{clearTimeout(timeout);reject(Error('Server exited before listening'))});});
   const health=await fetch(`http://127.0.0.1:${port}/api/health`);assert.equal(health.status,200);assert.equal((await health.json()).enabled,false);
   const state=await (await fetch(`http://127.0.0.1:${port}/api/state`)).text();assert.ok(!state.includes(keyJson));assert.ok(!output.includes(keyJson));
   assert.equal((await fetch(`http://127.0.0.1:${port}/.env`)).status,404);

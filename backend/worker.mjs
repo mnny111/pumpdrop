@@ -17,23 +17,23 @@ export class LiveWorker{
  async init(){if(!this.config.enabled||this.config.missing.length)return;
   this.startupStage='storage';this.store=new Store(resolve(this.config.dataDir,'pumpdrop.sqlite'));this.lockPath=resolve(this.config.dataDir,'worker.lock');this.startupStage='lock';this.lock=openSync(this.lockPath,'wx');
   process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
-  this.state=this.store.get('worker',this.state);const savedIdentity=this.store.get('identity');
+  this.state=this.store.get('worker',this.state);
   this.startupStage='wallet';this.signer=loadTreasury(this.config);
-  this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};if(savedIdentity&&JSON.stringify(savedIdentity)!==JSON.stringify(identity))throw Error('Database belongs to a different token or treasury');this.store.set('identity',identity);
+  this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};this.store.assertIdentity(identity);
   this.startupStage='rpc';this.connection=new Connection(this.config.rpc,'confirmed');await requireMainnet(this.connection);
-  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.started=true;this.startupStage=null;
+  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.store.set('identity',identity);this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
  async refreshCatalog(){try{this.catalog=await this.cc.machines();this.catalogAt=Date.now();this.catalogError=null}catch{this.catalogError='Collector Crypt catalogue unavailable'}}
- async nativeDelta(signature){const tx=await this.transactions.confirmedMeta(signature);if(!tx?.meta||tx.meta.err)throw Error('Confirmed transaction accounting not yet available');const keys=tx.transaction.message.staticAccountKeys||tx.transaction.message.accountKeys;const i=keys.findIndex(k=>k.equals(this.signer.publicKey));if(i<0)throw Error('Treasury missing from confirmed transaction');return BigInt(tx.meta.postBalances[i])-BigInt(tx.meta.preBalances[i])}
+ async nativeDelta(signature){const tx=await this.transactions.confirmedMeta(signature);if(!tx?.meta){const error=Error('Finalized transaction accounting not yet available');error.retryable=true;throw error;}if(tx.meta.err)throw Error('Finalized transaction failed');const keys=tx.transaction.message.staticAccountKeys||tx.transaction.message.accountKeys;const i=keys.findIndex(k=>k.equals(this.signer.publicKey));if(i<0)throw Error('Treasury missing from confirmed transaction');return BigInt(tx.meta.postBalances[i])-BigInt(tx.meta.preBalances[i])}
  async tick(){if(this.busy)return;this.busy=true;try{
   if(Date.now()-this.catalogAt>30000)await this.refreshCatalog();
   if(!this.started){this.message=this.config.missing.length?'Waiting for launch configuration':'Automatic opening is paused';return}
   if(this.state.halted){this.message='Worker paused for transaction reconciliation';return}
-  if(this.state.pendingFee){const id=this.state.pendingFee;const r=await this.transactions.execute(id,()=>this.pump.build(),{maxSolDebit:lamports(.005),minSolBalance:lamports(this.config.reserveSol)});if(!r){this.message='Confirming creator fee collection';return}const delta=await this.nativeDelta(r.signature);this.state.feeBudget=(BigInt(this.state.feeBudget)+delta>0n?BigInt(this.state.feeBudget)+delta:0n).toString();this.state.pendingFee=null;this.state.lastFeeAt=Date.now();this.save();return}
+  if(this.state.pendingFee){const id=this.state.pendingFee;if(!this.store.tx(id)&&BigInt(await this.connection.getBalance(this.signer.publicKey))<lamports(this.config.reserveSol)+lamports(.005)){this.message='Fund the creator wallet with SOL for the transaction reserve and collection fee';return;}const r=await this.transactions.execute(id,()=>this.pump.build(),{maxSolDebit:lamports(.005),minSolBalance:lamports(this.config.reserveSol)});if(!r){this.message='Confirming creator fee collection';return}const delta=await this.nativeDelta(r.signature);this.state.feeBudget=(BigInt(this.state.feeBudget)+delta>0n?BigInt(this.state.feeBudget)+delta:0n).toString();this.state.pendingFee=null;this.state.lastFeeAt=Date.now();this.save();return}
   if(this.state.job){await this.advanceJob();return}
   if(this.state.event?.endsAt>Date.now())return;
-  if(Date.now()-this.state.lastFeeAt>60000){const p=await this.pump.inspect();if(p.total>lamports(.001)){this.state.pendingFee='fees:'+randomUUID();this.save();return}this.state.lastFeeAt=Date.now();this.save()}
+  if(Date.now()-this.state.lastFeeAt>60000){if(BigInt(await this.connection.getBalance(this.signer.publicKey))<lamports(this.config.reserveSol)+lamports(.005)){this.message='Fund the creator wallet with SOL for the transaction reserve and collection fee';return;}const p=await this.pump.inspect();if(p.total>lamports(.001)){this.state.pendingFee='fees:'+randomUUID();this.save();return}this.state.lastFeeAt=Date.now();this.save()}
   if(this.catalogError||Date.now()-this.catalogAt>60000){this.message='Waiting for current Collector Crypt availability';return}
   if(Date.now()<(this.state.nextRoundAt||0)){this.message='Collecting creator fees for the next 60-second round';return}
   this.state.nextRoundAt=nextRoundAt();this.save();
@@ -86,6 +86,6 @@ export class LiveWorker{
  publicState(){const now=Date.now(),live=this.state.event?.endsAt>now?this.state.event:null,j=this.state.job;let event=live;
   if(j?.stage==='open')event={id:j.id,sequence:this.state.history.length+1,packId:j.packId,startedAt:j.startedAt,revealAt:now+60000,endsAt:now+120000,pull:null};
   if(event)event={...event,pull:now>=event.revealAt?event.pull:null};
-  return {mode:'live',status:this.state.halted?'paused':this.started?'active':'setup',message:this.message,serverTime:now,nextRoundAt:this.started?this.state.nextRoundAt:nextRoundAt(now),roundSeconds:60,nextPack:event?.packId||j?.packId||null,funded:0,feeBudgetLamports:this.state.feeBudget,tokenMint:this.config.mint||null,missing:this.config.missing,enabled:this.config.enabled,event,history:this.state.history.filter(e=>e.revealAt<=now).slice(-16).reverse(),catalog:this.catalog,catalogAt:this.catalogAt,catalogError:this.catalogError};
+  return {mode:'live',status:this.state.halted?'paused':this.started?'active':!this.config.enabled?'disabled':'setup',message:this.message,serverTime:now,nextRoundAt:this.started?this.state.nextRoundAt:nextRoundAt(now),roundSeconds:60,nextPack:event?.packId||j?.packId||null,funded:0,feeBudgetLamports:this.state.feeBudget,tokenMint:this.config.mint||null,missing:this.config.missing,enabled:this.config.enabled,event,history:this.state.history.filter(e=>e.revealAt<=now).slice(-16).reverse(),catalog:this.catalog,catalogAt:this.catalogAt,catalogError:this.catalogError};
  }
 }

@@ -1,4 +1,4 @@
-# PumpDrop
+# PumpCards
 
 A Solana / Pump.fun creator-fee-funded Collector Crypt pack opener. One shared page, one 60-second round, one token-balance-weighted recipient per real pack.
 
@@ -32,7 +32,7 @@ Optional read-only diagnostics: run npm run preflight through Railway SSH with l
 
 A persistent volume is a one-time Railway UI setup; railway.json does not create it. The actual Railway Docker build and first funded pack still require validation on Railway. Local startup tests do not establish mainnet execution.
 
-Collector Crypt works without a partner key for these public packs. Without a key, purchases use standard cc- memos and do not receive partner attribution or private-machine access. PumpDrop still tracks each purchase by its unique memo and verifies payment and recipient delivery.
+Collector Crypt works without a partner key for these public packs. Without a key, purchases use standard cc- memos and do not receive partner attribution or private-machine access. PumpCards still tracks each purchase by its unique memo and verifies payment and recipient delivery.
 
 ## What is implemented
 
@@ -51,14 +51,14 @@ Collector Crypt works without a partner key for these public packs. Without a ke
 
 1. Use Node 24 LTS. Run `npm ci`, copy `.env.example` to `.env`, and run `npm start`.
 2. After launching your token, set `MAIN_TOKEN_MINT` to its public mint address.
-3. Use a **dedicated direct creator wallet** for this token and put its Solana JSON keypair file outside the repository. Set `TREASURY_KEYPAIR_PATH` to that file path, or use `TREASURY_PRIVATE_KEY` for an exported base58 private key (`TREASURY_KEYPAIR_JSON` remains available for JSON arrays). Set only one wallet source. Never paste a seed/private key into chat or browser code. The worker verifies that this signer is the curve and pool creator.
+3. Use a **dedicated treasury wallet** that is either the direct creator-fee wallet or a positive-share recipient in the token's on-chain Pump fee-sharing configuration and put its Solana JSON keypair file outside the repository. Set `TREASURY_KEYPAIR_PATH` to that file path, or use `TREASURY_PRIVATE_KEY` for an exported base58 private key (`TREASURY_KEYPAIR_JSON` remains available for JSON arrays). Set only one wallet source. Never paste a seed/private key into chat or browser code. The worker verifies direct creator authority or a positive share in the token's fee-sharing configuration.
 4. Set a mainnet `SOLANA_RPC_URL` that supports full `getProgramAccounts` responses and transaction history. A top-holder-only API is not sufficient.
 5. Obtain `JUPITER_API_KEY` through Jupiter's developer portal. `COLLECTOR_CRYPT_API_KEY` is optional: leave it unset or blank for standard public pack purchases. If supplied, it is validated against the authenticated partner endpoint; an invalid supplied key stops startup. Keys remain server-side.
 6. Set explicit `MAX_PACK_USD`, `DAILY_PACK_BUDGET_USD`, `MAX_SWAP_SOL`, `MIN_SOL_RESERVE`, `EXCLUDED_HOLDERS` and `MIN_HOLDER_RAW`. The daily limit resets at UTC midnight and reserves a pack's cost before purchase. Failed/uncertain jobs do not free the reserved budget automatically.
 7. Set `DEDICATED_CREATOR_CONFIRMED=true` only if this creator wallet is dedicated to this token: Pump creator vaults can aggregate rewards from other coins created by the same wallet.
 8. Stop any running worker and run `npm run preflight`. This checks configuration, authority, API access, eligible holders and quotes without signing or sending transactions. Then validate the flow with one small real pack before unattended operation. `LIVE_ENABLED=true` enables signing and real spending automatically. Defaults are disabled, with blank spending limits. A mint address alone does not enable trading.
 
-Launch the token with ordinary direct creator fees assigned to the dedicated wallet. Tokens configured for cashback, native Pump holder rewards, fee-sharing recipients, or non-SOL quotes are explicitly rejected by this worker; they need a different fee adapter. No creator-authority changes are attempted.
+Direct creator fees and redirected SOL fees through Pump fee sharing are supported. The launch wallet can differ from the treasury: TREASURY_PRIVATE_KEY must belong to the configured recipient. Fee-sharing distribution follows all on-chain allocations, and only the treasury's finalized net SOL receipt counts toward packs. Cashback, native Pump holder rewards and non-SOL quotes remain unsupported. No creator-authority or recipient changes are attempted.
 
 Holder selection policy: balances at the finalized snapshot immediately before the purchase job. Transfers after the snapshot do not change that job's winner. Exchange custody owners are not distinguishable from normal wallets without the explicit exclusion list. The operator must set any team, exchange or burn exclusions before enabling.
 
@@ -76,7 +76,7 @@ The worker halts on uncertain financial outcomes. Automated recovery for expired
 
 ## Verification and limits
 
-37 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+52 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 No token has launched, no treasury key or API credentials have been configured, and **no funded end-to-end collection, swap, pack purchase or NFT delivery has been executed**. Tests using mocks are not evidence of mainnet execution. Run a controlled first transaction after configuration before treating this as production-verified.
 
@@ -90,3 +90,11 @@ The dependency audit reports zero known vulnerabilities as of 19 October 2026. J
 - https://developers.jup.ag/docs/api-reference/swap/v1/swap
 
 The current Jupiter integration uses the documented V1 ExactOut route for precise pack funding. Jupiter marks V1 as superseded by V2; a migration should be separately validated before changing the payment path.
+
+## Redirected fees and existing deployments
+
+Set MAIN_TOKEN_MINT to the launched token and TREASURY_PRIVATE_KEY to the recipient treasury wallet. Configure fee redirection on Pump.fun itself; the app detects the sharing config automatically. No launch-wallet private key or new fee-mode variable is required. Keep the treasury dedicated and funded for transaction costs. Only distributions executed and journaled by this worker are credited: fees already claimed externally, manual transfers and unrelated deposits are not automatically imported.
+
+An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records always block identity changes and require reconciliation. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The supplied X account remains @pumpdropone until a replacement is provided.
+
+Fee-sharing support has local SDK/mocked regression coverage; the deployed recipient configuration and a funded distribution-to-pack cycle still need verification.

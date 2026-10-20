@@ -31,7 +31,7 @@ Use one worker, persistent SQLite storage, a dedicated creator wallet and a trus
 
 Uncertain/expired/failed payments, interrupted generation, refunds, unsupported provider instructions, and stale locks after a crash require operator reconciliation as documented in README.md. Do not clear journals, regenerate a payment or reroll a winner to recover. These cases deliberately stop automation. Provider schema changes can require an adapter update; the pinned Jupiter schema intentionally does not accept unknown routes. Compressed or nonstandard collectible deliveries without standard token-balance ownership evidence will also pause for review.
 
-This supports direct creator SOL rewards, not fee sharing, cashback, native Pump holder rewards or non-SOL quote tokens. Hosting and the funded first-pack validation remain launch tasks.
+The current adapter supports direct creator SOL rewards and on-chain Pump fee-sharing recipients. Cashback, native Pump holder rewards and non-SOL quote tokens remain unsupported. Hosting and the funded first-pack validation remain launch tasks.
 
 ## References
 
