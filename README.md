@@ -103,7 +103,7 @@ The current Jupiter integration uses the documented V1 ExactOut route for precis
 
 Set MAIN_TOKEN_MINT to the launched token and TREASURY_PRIVATE_KEY to the recipient treasury wallet. Configure fee redirection on Pump.fun itself; the app detects the sharing config automatically. No launch-wallet private key or new fee-mode variable is required. Keep the treasury dedicated and funded for transaction costs. Only distributions executed and journaled by this worker are credited: fees already claimed externally, manual transfers and unrelated deposits are not automatically imported.
 
-An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records block unapproved identity changes; the explicit same-treasury carryover below is the only supported migration. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The website links to the supplied X account, @pumpcardsworld.
+An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records block unapproved identity changes; the explicit same-treasury carryover below is the only supported migration. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The website links to the supplied X account, @kooleyyx.
 
 Fee-sharing support has local SDK/mocked regression coverage; the deployed recipient configuration and a funded distribution-to-pack cycle still need verification.
 
