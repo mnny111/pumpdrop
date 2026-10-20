@@ -40,7 +40,11 @@ export function validatePurchase(message,{payer,price,memo}){
  if(!message.payerKey?.equals(new PublicKey(payer)))throw Error('Unexpected purchase payer');
  const source=getAssociatedTokenAddressSync(USDC,new PublicKey(payer)).toBase58();let paid=0n,memoFound=false;
  for(const ix of message.instructions){const program=ix.programId.toBase58(),d=Buffer.from(ix.data);
-  if(program===MEMO){if(d.toString('utf8')===memo)memoFound=true;continue}
+  if(program===MEMO){
+   const text=d.toString('utf8');
+   if(memoFound||![memo,memo+':open'].includes(text))throw Error('Pack memo mismatch');
+   memoFound=true;continue;
+  }
   if(program===ComputeBudgetProgram.programId.toBase58())continue;
   if(program===ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()){validateAta(ix,new PublicKey(payer));continue}
   if(program!==TOKEN_PROGRAM_ID.toBase58())throw Error('Unexpected Collector Crypt instruction');
@@ -49,7 +53,8 @@ export function validatePurchase(message,{payer,price,memo}){
   if(from!==source||to!==CC_USDC||authority!==payer||d.length!==(checked?10:9))throw Error('Unexpected payment account');
   if(checked&&(!ix.keys[1].pubkey.equals(USDC)||d[9]!==6))throw Error('Unexpected payment mint');paid+=d.readBigUInt64LE(1);
  }
- if(paid!==usdUnits(price)||!memoFound)throw Error('Pack payment or memo mismatch');
+ if(paid!==usdUnits(price))throw Error('Pack payment amount mismatch');
+ if(!memoFound)throw Error('Pack memo missing');
 }
 export class Transactions{
  constructor(connection,signer,store){Object.assign(this,{connection,signer,store})}

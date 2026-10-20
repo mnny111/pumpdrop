@@ -10,7 +10,10 @@ const safeReasons=new Set([
  'Pack availability or price changed after funding','Purchase exceeded tracked fee budget',
  'Provider refunded purchase','NFT delivery transaction failed','NFT ownership not verified in finalized delivery',
  'Unexpected swap instruction; operator review required','Invalid swap payer or route',
- 'Priority fee exceeds 100000 lamports','Unexpected payment account','Pack payment or memo mismatch'
+ 'Priority fee exceeds 100000 lamports','Unexpected payment account','Pack payment or memo mismatch',
+ 'Pack payment amount mismatch','Pack memo mismatch','Pack memo missing','Unpaid pack identity mismatch',
+ 'Purchase already contains a treasury signature; reconcile before replacement',
+ 'Pack has payment or delivery activity; reconcile before replacement'
 ]);
 // Fixed messages and public signatures only. Never expose raw signed bytes, keys,
 // RPC URLs or arbitrary provider error bodies in logs or command output.

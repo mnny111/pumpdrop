@@ -84,7 +84,7 @@ Deploy the latest main commit with the same token, treasury and persistent volum
 
 ## Verification and limits
 
-62 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+68 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 Local verification does not use the deployed treasury key or API credentials. **A funded end-to-end collection, swap, pack purchase and NFT delivery has not been verified by this review.** Tests using mocks are not evidence of mainnet execution. Complete a controlled first transaction before treating this as production-verified.
 
@@ -106,3 +106,9 @@ Set MAIN_TOKEN_MINT to the launched token and TREASURY_PRIVATE_KEY to the recipi
 An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records always block identity changes and require reconciliation. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The website links to the supplied X account, @pumpcardsworld.
 
 Fee-sharing support has local SDK/mocked regression coverage; the deployed recipient configuration and a funded distribution-to-pack cycle still need verification.
+
+### Collector purchase memo recovery
+
+Collector Crypt uses `<memo>:open` in its on-chain purchase memo (confirmed by an unsigned mainnet sample on 20 October 2026). The validator accepts this exact action suffix or the legacy bare memo, still requiring the exact USDC amount, approved destination and payer. Different actions, duplicate memos and modified amounts fail validation.
+
+An existing `Pack payment or memo mismatch` halt can recover only in the purchase stage when the swap is finalized, no purchase journal exists, the saved payment passes all corrected validation checks, its treasury signature is empty, and Collector reports that exact checkout as unpaid with no send/buyback/refund activity. The old unsigned checkout is archived inside the saved job and a fresh checkout is requested for the same holder and pack. The existing USDC from the swap, fee ledger and daily budget reservation are retained; no second swap or draw occurs. Provider-generated transactions are never edited to replace their blockhash. Signed/paid purchases remain ineligible for this replacement. A new checkout's opening deadline is measured from its own generation time. An interrupted generation still requires reconciliation rather than another generation request.

@@ -23,3 +23,8 @@ export function verifyDelivery(status,job){
  if(s.to_wallet!==job.winner||!s.nft_address||!s.transaction_signature)throw Error('Recipient or NFT transfer mismatch');
  return {mint:s.nft_address,signature:s.transaction_signature};
 }
+export function verifyUnpaidPack(status,job){
+ const pack=status?.pack;
+ if(status?.memo!==job.memo||!pack||pack.wallet!==job.payer||pack.pack_type!==job.code||pack.turbo_mode!==false||pack.token_mint!=='EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')throw Error('Unpaid pack identity mismatch');
+ if(pack.status!==null||pack.transaction_signature!==null||pack.webhook_received||pack.refunded||pack.refund_transaction_signature||status.send!==null||!Array.isArray(status.buyback)||status.buyback.length)throw Error('Pack has payment or delivery activity; reconcile before replacement');
+}

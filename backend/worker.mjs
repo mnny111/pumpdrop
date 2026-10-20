@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {loadTreasury} from './wallet.mjs';
 import {Store} from './store.mjs';
-import {CollectorClient,verifyDelivery} from './collector.mjs';
+import {CollectorClient,verifyDelivery,verifyUnpaidPack} from './collector.mjs';
 import {PumpFees} from './pump.mjs';
 import {Jupiter} from './jupiter.mjs';
 import {Transactions,validatePurchase,validateSwap,usdUnits} from './transactions.mjs';
@@ -25,6 +25,26 @@ export class LiveWorker{
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.store.set('identity',identity);this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
+ async recoverUnsignedMemoPause(){
+  const j=this.state.job;
+  if(this.state.halted?.reason!=='Pack payment or memo mismatch'||j?.stage!=='purchase')return false;
+  if(j.payer!==this.signer.publicKey.toBase58()||BigInt(j.cost)!==usdUnits(j.price))throw Error('Unpaid pack identity mismatch');
+  if(this.store.tx(j.id+':purchase'))return false;
+  const swap=this.store.tx(j.id+':swap');
+  if(!swap?.finalized||swap.status!=='confirmed'||swap.signature!==j.swapSignature)return false;
+  const {tx,message}=await this.transactions.decode(j.transaction);
+  validatePurchase(message,{payer:j.payer,price:j.price,memo:j.memo});
+  const signerIndex=tx.message.staticAccountKeys.slice(0,tx.message.header.numRequiredSignatures).findIndex(k=>k.equals(this.signer.publicKey));
+  if(signerIndex<0||!tx.signatures[signerIndex]?.every(b=>b===0))throw Error('Purchase already contains a treasury signature; reconcile before replacement');
+  verifyUnpaidPack(await this.cc.status(j.memo),j);
+  // No purchase was signed or broadcast. Retain the old checkout for audit,
+  // then obtain a fresh provider-signed transaction without changing its blockhash.
+  j.retiredPurchases=[...(j.retiredPurchases||[]),{memo:j.memo,transaction:j.transaction,retiredAt:Date.now(),reason:'unsigned-memo-format-recovery'}];
+  j.stage='generate';delete j.memo;delete j.transaction;delete j.generatedAt;
+  delete this.state.halted;delete this.state.retryAt;delete this.state.retryCount;
+  this.save();this.message='Refreshing the unpaid pack checkout; existing swap and holder preserved';
+  return true;
+ }
  recoverRateLimitPause(){
   // Only migrate a known transport failure. Never clear validation failures,
   // ambiguous pack generation, failed transactions or expired signatures.
@@ -42,6 +62,8 @@ export class LiveWorker{
  async tick(){if(this.busy)return;this.busy=true;try{
   if(Date.now()-this.catalogAt>30000)await this.refreshCatalog();
   if(!this.started){this.message=this.config.missing.length?'Waiting for launch configuration':'Automatic opening is paused';return}
+  if(this.state.retryAt>Date.now()){this.message='Provider cooldown; fees and current transaction are saved';return}
+  if(await this.recoverUnsignedMemoPause())return;
   this.recoverRateLimitPause();
   if(this.state.halted){this.message='Worker paused for transaction reconciliation';if(!this.reportedHalt){console.error('Worker reconciliation:',JSON.stringify(operatorStatus(this.state,this.store)));this.reportedHalt=true}return}
   if(this.state.retryAt>Date.now()){this.message='Provider cooldown; fees and current transaction are saved';return}
@@ -77,11 +99,11 @@ export class LiveWorker{
   }
   if(j.stage==='generate'){
    const fresh=(await this.cc.machines()).find(p=>p.id===j.packId);if(!fresh?.available||usdUnits(fresh.price)!==BigInt(j.cost))throw Error('Pack availability or price changed after funding');
-   j.stage='generating';this.save();const generated=await this.cc.generate({payer:j.payer,winner:j.winner,code:j.code});j.memo=generated.memo;j.transaction=generated.transaction;j.stage='purchase';this.save();return;
+   j.stage='generating';this.save();const generated=await this.cc.generate({payer:j.payer,winner:j.winner,code:j.code});j.memo=generated.memo;j.transaction=generated.transaction;j.generatedAt=Date.now();j.stage='purchase';this.save();return;
   }
   if(j.stage==='generating')throw Error('Interrupted pack generation; reconcile provider before resuming');
   if(j.stage==='purchase'){
-   if(!this.store.tx(j.id+':purchase')&&Date.now()-j.createdAt>90*60000)throw Error('Pack purchase deadline too close; reconcile before continuing');
+   if(!this.store.tx(j.id+':purchase')&&Date.now()-(j.generatedAt||j.createdAt)>90*60000)throw Error('Pack purchase deadline too close; reconcile before continuing');
    const r=await this.transactions.execute(j.id+':purchase',async()=>j.transaction,{validate:m=>validatePurchase(m,{payer:j.payer,price:j.price,memo:j.memo}),minSolBalance:lamports(this.config.reserveSol),maxSolDebit:lamports(.005),maxUsdcDebit:j.cost});
    if(!r){this.message='Confirming Collector Crypt purchase';return}const delta=await this.nativeDelta(r.signature);const remaining=BigInt(this.state.feeBudget)+delta;if(remaining<0n)throw Error('Purchase exceeded tracked fee budget');this.state.feeBudget=remaining.toString();j.purchaseSignature=r.signature;j.stage='open';j.startedAt=Date.now();delete j.transaction;this.save();return;
   }
