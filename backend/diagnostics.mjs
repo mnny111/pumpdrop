@@ -13,7 +13,8 @@ const safeReasons=new Set([
  'Priority fee exceeds 100000 lamports','Unexpected payment account','Pack payment or memo mismatch',
  'Pack payment amount mismatch','Pack memo mismatch','Pack memo missing','Unpaid pack identity mismatch',
  'Purchase already contains a treasury signature; reconcile before replacement',
- 'Pack has payment or delivery activity; reconcile before replacement'
+ 'Pack has payment or delivery activity; reconcile before replacement',
+ 'NFT ownership not verified in finalized delivery','Core asset ownership not verified','Core delivery slot missing'
 ]);
 // Fixed messages and public signatures only. Never expose raw signed bytes, keys,
 // RPC URLs or arbitrary provider error bodies in logs or command output.

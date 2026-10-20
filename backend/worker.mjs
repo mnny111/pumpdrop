@@ -1,6 +1,7 @@
 import {requireMainnet} from './network.mjs';
 import {createRpcConnection,isRateLimited,isTransient} from './rpc.mjs';
 import {operatorStatus} from './diagnostics.mjs';
+import {verifyOnChainDelivery} from './delivery.mjs';
 import {openSync,closeSync,unlinkSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -25,6 +26,18 @@ export class LiveWorker{
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.store.set('identity',identity);this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
+ async recoverCoreDeliveryPause(){
+  const j=this.state.job;
+  if(this.state.halted?.reason!=='NFT ownership not verified in finalized delivery'||j?.stage!=='open')return false;
+  const purchase=this.store.tx(j.id+':purchase');
+  if(!purchase?.finalized||purchase.status!=='confirmed'||purchase.signature!==j.purchaseSignature)return false;
+  const status=await this.cc.status(j.memo);
+  if(status.pack?.status!=='confirmed')return false;
+  const delivery=verifyDelivery(status,j);
+  if(!delivery||!await verifyOnChainDelivery(this.connection,delivery,j.winner))return false;
+  delete this.state.halted;this.save();this.message='On-chain delivery verified; loading the existing pack result';
+  return true;
+ }
  async recoverUnsignedMemoPause(){
   const j=this.state.job;
   if(this.state.halted?.reason!=='Pack payment or memo mismatch'||j?.stage!=='purchase')return false;
@@ -63,6 +76,7 @@ export class LiveWorker{
   if(Date.now()-this.catalogAt>30000)await this.refreshCatalog();
   if(!this.started){this.message=this.config.missing.length?'Waiting for launch configuration':'Automatic opening is paused';return}
   if(this.state.retryAt>Date.now()){this.message='Provider cooldown; fees and current transaction are saved';return}
+  if(await this.recoverCoreDeliveryPause())return;
   if(await this.recoverUnsignedMemoPause())return;
   this.recoverRateLimitPause();
   if(this.state.halted){this.message='Worker paused for transaction reconciliation';if(!this.reportedHalt){console.error('Worker reconciliation:',JSON.stringify(operatorStatus(this.state,this.store)));this.reportedHalt=true}return}
@@ -113,8 +127,8 @@ export class LiveWorker{
    verifyDelivery(status,j);
    const award=await this.cc.open(j.memo);if(award.code==='WAITING_FOR_WEBHOOK')return;if(!award.nft_address)throw Error('Provider returned no collectible');
    const delivery=verifyDelivery(await this.cc.status(j.memo),j);if(!delivery)return;
-   const tx=await this.connection.getTransaction(delivery.signature,{commitment:'finalized',maxSupportedTransactionVersion:0});if(!tx)return;if(!tx.meta||tx.meta.err)throw Error('NFT delivery transaction failed');
-   const keys=[...(tx.transaction.message.staticAccountKeys||tx.transaction.message.accountKeys),...(tx.meta.loadedAddresses?.writable||[]),...(tx.meta.loadedAddresses?.readonly||[])];if(!keys.some(k=>k.toBase58()===j.winner))throw Error('Winner absent from confirmed delivery');const delivered=(tx.meta.postTokenBalances||[]).some(b=>b.mint===delivery.mint&&b.owner===j.winner&&b.uiTokenAmount?.amount==='1');if(!delivered)throw Error('NFT ownership not verified in finalized delivery');if(award.nft_address!==delivery.mint)throw Error('NFT result mismatch');
+   if(!await verifyOnChainDelivery(this.connection,delivery,j.winner))return;
+   if(award.nft_address!==delivery.mint)throw Error('NFT result mismatch');
    const content=award.nftWon?.content;const image=award.nftWon?.image||content?.links?.image||content?.files?.[0]?.uri||null;
    const e={id:j.id,sequence:this.state.history.length+1,packId:j.packId,startedAt:j.startedAt,revealAt:Date.now()+1500,endsAt:Date.now()+13500,winner:j.winner,snapshotSlot:j.snapshotSlot,snapshotHash:j.snapshotHash,draw:j.draw,memo:j.memo,purchaseSignature:j.purchaseSignature,deliverySignature:delivery.signature,pull:{name:content?.metadata?.name||'Collector Crypt collectible',image:image?.startsWith('https://')?image:null,icon:'◈',mint:delivery.mint}};
    this.state.history.push(e);this.state.job=null;this.state.event=e;this.save();this.message='Collectible delivered to the selected holder';
