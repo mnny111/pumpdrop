@@ -2,7 +2,10 @@ import {resolve,relative,isAbsolute} from 'node:path';
 import {PublicKey} from '@solana/web3.js';
 export function loadConfig(env=process.env){
  const c={enabled:env.LIVE_ENABLED==='true',mint:(env.MAIN_TOKEN_MINT||'').trim(),rpc:env.SOLANA_RPC_URL||'',keyFile:env.TREASURY_KEYPAIR_PATH||'',keyJson:(env.TREASURY_KEYPAIR_JSON||'').trim(),privateKey:(env.TREASURY_PRIVATE_KEY||'').trim(),ccKey:(env.COLLECTOR_CRYPT_API_KEY||'').trim(),jupKey:env.JUPITER_API_KEY||'',packId:env.AUTO_PACK_ID||'starter',excluded:(env.EXCLUDED_HOLDERS||'').split(',').map(x=>x.trim()).filter(Boolean),dataDir:env.DATA_DIR||env.RAILWAY_VOLUME_MOUNT_PATH||'./data',maxPackUsd:Number(env.MAX_PACK_USD||0),dailyUsd:Number(env.DAILY_PACK_BUDGET_USD||0),reserveSol:Number(env.MIN_SOL_RESERVE||0.02),maxSwapSol:Number(env.MAX_SWAP_SOL||0),slippage:Number(env.SLIPPAGE_BPS||50),minimum:env.MIN_HOLDER_RAW||'1',dedicated:env.DEDICATED_CREATOR_CONFIRMED==='true'};
- c.carryoverToMint=(env.CARRYOVER_TO_TOKEN_MINT||'').trim();
+ c.ledgerMode=env.TOKEN_LEDGER_MODE||'legacy';
+ if(!['legacy','fresh'].includes(c.ledgerMode))throw Error('TOKEN_LEDGER_MODE must be legacy or fresh');
+ // Fresh mode explicitly opts out of carryover, including a stale migration setting.
+ c.carryoverToMint=c.ledgerMode==='fresh'?'':(env.CARRYOVER_TO_TOKEN_MINT||'').trim();
  if(c.carryoverToMint){try{new PublicKey(c.carryoverToMint)}catch{throw Error('CARRYOVER_TO_TOKEN_MINT must be a public Solana mint address')}if(c.carryoverToMint!==c.mint)throw Error('CARRYOVER_TO_TOKEN_MINT must match MAIN_TOKEN_MINT')}
  if(env.LIVE_ENABLED&&!['true','false'].includes(env.LIVE_ENABLED))throw Error('LIVE_ENABLED must be true or false');
  if(c.rpc&&new URL(c.rpc).protocol!=='https:')throw Error('SOLANA_RPC_URL must use HTTPS');

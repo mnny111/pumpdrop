@@ -84,7 +84,7 @@ Deploy the latest main commit with the same token, treasury and persistent volum
 
 ## Verification and limits
 
-82 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+85 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 Local tests do not use the deployed treasury key or API credentials. On 20 October 2026, the existing public mainnet $25 purchase and its finalized Metaplex Core delivery were inspected, and the new verifier confirmed the selected holder as the current on-chain asset owner. Deployed recovery and sustained unattended operation still require verification. Mock tests alone are not evidence of mainnet execution.
 
@@ -133,3 +133,13 @@ For the authorized migration:
 MAIN_TOKEN_MINT=8n1bUSp2rmJZkLEqXzYZpwzCHTjRX3vZd1RjjsNGpump
 CARRYOVER_TO_TOKEN_MINT=8n1bUSp2rmJZkLEqXzYZpwzCHTjRX3vZd1RjjsNGpump
 ```
+
+### Fresh start for each new CA (no carryover)
+
+Set TOKEN_LEDGER_MODE=fresh and MAIN_TOKEN_MINT to the new public CA. Keep LIVE_ENABLED=true, the configured treasury, RPC/API credentials, spending caps and persistent volume. Remove CARRYOVER_TO_TOKEN_MINT; fresh mode ignores any stale carryover setting. Future CA changes need only MAIN_TOKEN_MINT updated.
+
+Each token/treasury pair uses its own persistent file under DATA_DIR/tokens/<mint>/<treasury>.sqlite. A new pair begins with zero tracked fees, no jobs, no history and a separate daily spend total. The former pumpdrop.sqlite and other token ledgers are retained unchanged as archived records, including their remaining budgets and signed/pending transactions. They are not automatically resumed or migrated. Existing wallet SOL/USDC is not credited to the new budget: the new worker credits only collections it executes and finalizes. A signed transaction previously broadcast can still settle on-chain; archiving does not cancel it or credit its receipt to the new ledger. Unclaimed creator-vault fees may be collected later; this is not a cutoff based on when fees accrued.
+
+Restarting or redeploying the same CA and treasury resumes its existing ledger; fresh mode is never reset-on-boot. Keep the mode set to fresh. Returning to a previously used pair resumes that pair's saved state. One root worker.lock still protects the service across token ledgers. npm run diagnose reads the active token ledger via a public-identity marker and never loads the treasury key. With the mode unset, existing installations retain the legacy database behavior.
+
+The treasury must still be the new token's creator or configured fee-sharing recipient, have a transaction reserve, and use working API/RPC credentials. New purchases require sufficient newly tracked fees and eligible holders. Old funds remaining in the wallet alone do not fund a fresh ledger.

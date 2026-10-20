@@ -2,11 +2,12 @@ import {requireMainnet} from './network.mjs';
 import {createRpcConnection,isRateLimited,isTransient} from './rpc.mjs';
 import {operatorStatus} from './diagnostics.mjs';
 import {verifyOnChainDelivery} from './delivery.mjs';
-import {openSync,closeSync,unlinkSync} from 'node:fs';
+import {openSync,closeSync,unlinkSync,mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {loadTreasury} from './wallet.mjs';
 import {Store} from './store.mjs';
+import {ledgerPath} from './ledger.mjs';
 import {CollectorClient,verifyDelivery,verifyUnpaidPack} from './collector.mjs';
 import {PumpFees} from './pump.mjs';
 import {Jupiter} from './jupiter.mjs';
@@ -17,15 +18,19 @@ const lamports=n=>BigInt(Math.ceil(n*1e9));
 export class LiveWorker{
  constructor(config){this.config=config;this.cc=new CollectorClient({key:config.ccKey});this.catalog=[];this.catalogAt=0;this.catalogError=null;this.busy=false;this.state={feeBudget:'0',job:null,history:[],daily:{},pendingFee:null,lastFeeAt:0,nextRoundAt:nextRoundAt()};this.message='Waiting for launch configuration';this.started=false}
  async init(){if(!this.config.enabled||this.config.missing.length)return;
-  this.startupStage='storage';this.store=new Store(resolve(this.config.dataDir,'pumpdrop.sqlite'));this.lockPath=resolve(this.config.dataDir,'worker.lock');this.startupStage='lock';this.lock=openSync(this.lockPath,'wx');
-  process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
-  this.state=this.store.get('worker',this.state);
   this.startupStage='wallet';this.signer=loadTreasury(this.config);
+  this.startupStage='storage';mkdirSync(this.config.dataDir,{recursive:true});
+  this.lockPath=resolve(this.config.dataDir,'worker.lock');this.startupStage='lock';this.lock=openSync(this.lockPath,'wx');
+  process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
+  this.startupStage='storage';this.store=new Store(ledgerPath({...this.config,treasury:this.signer.publicKey.toBase58()}));
+  this.state=this.store.get('worker',this.state);
   this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()},identityOptions={carryoverToMint:this.config.carryoverToMint};this.store.assertIdentity(identity,identityOptions);
   this.startupStage='rpc';this.connection=createRpcConnection(this.config.rpc);await requireMainnet(this.connection);
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();
   this.startupStage='identity';const migrated=this.store.commitIdentity(identity,identityOptions);this.state=this.store.get('worker',this.state);
   if(migrated)console.log('Token migration committed: existing fee ledger and paid pack winner preserved');
+  writeFileSync(resolve(this.config.dataDir,'active-ledger.json'),JSON.stringify({ledgerMode:this.config.ledgerMode||'legacy',...identity}));
+  if(this.config.ledgerMode==='fresh')console.log('Token-specific ledger active; other token records retained separately');
   this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
