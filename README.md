@@ -74,11 +74,19 @@ Back up the SQLite database and its WAL as a consistent snapshot. Never delete t
 
 The worker halts on uncertain financial outcomes. Automated recovery for expired transactions requires operator reconciliation and is not a guaranteed hands-off recovery mechanism. Provider/API instruction changes may trigger the strict purchase/swap validation guard and need an adapter update.
 
+### Rate limits and safe resumption
+
+RPC calls now share a serialized queue with at least 500 ms between request starts, including full holder snapshots. HTTP 429 and server errors use bounded retries and respect Retry-After. Sustained transient failures persist a cooldown of 30 seconds to 5 minutes (or longer when the provider requests it), keeping the fee ledger, chosen holder, daily budget and signed transaction journal intact.
+
+On redeploy, a saved halt specifically caused by HTTP 429 can resume automatically after a cooldown. The worker checks the recorded signature and reuses the exact signed bytes; it never replaces a journaled transaction or redraws its winner. A finalized receipt is accounted with the job stage in the same saved worker record. Failed on-chain transactions, unresolved expired signatures, validation failures and interrupted Collector pack generation still require reconciliation. This update does not import old external deposits or reset any database.
+
+Deploy the latest main commit with the same token, treasury and persistent volume. No new environment variables are required. The UI displays Paused, Processing or a retry countdown instead of leaving an overdue timer on Evaluating. A remaining halt prints safe stage/signature diagnostics in Railway logs. Run `npm run diagnose` through Railway SSH for the same read-only report; it does not load a private key, send transactions or alter the database. RPC quotas still apply: pacing cannot overcome an exhausted provider plan.
+
 ## Verification and limits
 
-52 local tests pass for exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+62 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
-No token has launched, no treasury key or API credentials have been configured, and **no funded end-to-end collection, swap, pack purchase or NFT delivery has been executed**. Tests using mocks are not evidence of mainnet execution. Run a controlled first transaction after configuration before treating this as production-verified.
+Local verification does not use the deployed treasury key or API credentials. **A funded end-to-end collection, swap, pack purchase and NFT delivery has not been verified by this review.** Tests using mocks are not evidence of mainnet execution. Complete a controlled first transaction before treating this as production-verified.
 
 The dependency audit reports zero known vulnerabilities as of 19 October 2026. Jayson is pinned to 5.0.0, which removes the vulnerable streaming parser; RPC package loading is regression-tested. The native `bigint-buffer` path is replaced with a tested bounded pure-JavaScript codec. Installation scripts are disabled. See SECURITY-REVIEW.md for the review scope and remaining live-validation requirements.
 

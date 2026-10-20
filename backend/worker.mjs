@@ -1,5 +1,6 @@
 import {requireMainnet} from './network.mjs';
-import {Connection} from '@solana/web3.js';
+import {createRpcConnection,isRateLimited,isTransient} from './rpc.mjs';
+import {operatorStatus} from './diagnostics.mjs';
 import {openSync,closeSync,unlinkSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -20,16 +21,30 @@ export class LiveWorker{
   this.state=this.store.get('worker',this.state);
   this.startupStage='wallet';this.signer=loadTreasury(this.config);
   this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};this.store.assertIdentity(identity);
-  this.startupStage='rpc';this.connection=new Connection(this.config.rpc,'confirmed');await requireMainnet(this.connection);
+  this.startupStage='rpc';this.connection=createRpcConnection(this.config.rpc);await requireMainnet(this.connection);
   this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.store.set('identity',identity);this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
+ recoverRateLimitPause(){
+  // Only migrate a known transport failure. Never clear validation failures,
+  // ambiguous pack generation, failed transactions or expired signatures.
+  if(!this.state.halted||!isRateLimited({message:this.state.halted.reason})||this.state.job?.stage==='generating')return false;
+  const stage=this.state.job?.stage;
+  if(stage&&!['swap','generate','purchase','open'].includes(stage))return false;
+  const id=this.state.pendingFee||(stage==='swap'||stage==='purchase'?this.state.job.id+':'+stage:null);
+  if(id&&this.store.tx(id)?.status==='failed')return false;
+  this.state.recoveredRateLimitAt=Date.now();delete this.state.halted;
+  this.state.retryAt=Date.now()+30000;this.save();
+  return true;
+ }
  async refreshCatalog(){try{this.catalog=await this.cc.machines();this.catalogAt=Date.now();this.catalogError=null}catch{this.catalogError='Collector Crypt catalogue unavailable'}}
  async nativeDelta(signature){const tx=await this.transactions.confirmedMeta(signature);if(!tx?.meta){const error=Error('Finalized transaction accounting not yet available');error.retryable=true;throw error;}if(tx.meta.err)throw Error('Finalized transaction failed');const keys=tx.transaction.message.staticAccountKeys||tx.transaction.message.accountKeys;const i=keys.findIndex(k=>k.equals(this.signer.publicKey));if(i<0)throw Error('Treasury missing from confirmed transaction');return BigInt(tx.meta.postBalances[i])-BigInt(tx.meta.preBalances[i])}
  async tick(){if(this.busy)return;this.busy=true;try{
   if(Date.now()-this.catalogAt>30000)await this.refreshCatalog();
   if(!this.started){this.message=this.config.missing.length?'Waiting for launch configuration':'Automatic opening is paused';return}
-  if(this.state.halted){this.message='Worker paused for transaction reconciliation';return}
+  this.recoverRateLimitPause();
+  if(this.state.halted){this.message='Worker paused for transaction reconciliation';if(!this.reportedHalt){console.error('Worker reconciliation:',JSON.stringify(operatorStatus(this.state,this.store)));this.reportedHalt=true}return}
+  if(this.state.retryAt>Date.now()){this.message='Provider cooldown; fees and current transaction are saved';return}
   if(this.state.pendingFee){const id=this.state.pendingFee;if(!this.store.tx(id)&&BigInt(await this.connection.getBalance(this.signer.publicKey))<lamports(this.config.reserveSol)+lamports(.005)){this.message='Fund the creator wallet with SOL for the transaction reserve and collection fee';return;}const r=await this.transactions.execute(id,()=>this.pump.build(),{maxSolDebit:lamports(.005),minSolBalance:lamports(this.config.reserveSol)});if(!r){this.message='Confirming creator fee collection';return}const delta=await this.nativeDelta(r.signature);this.state.feeBudget=(BigInt(this.state.feeBudget)+delta>0n?BigInt(this.state.feeBudget)+delta:0n).toString();this.state.pendingFee=null;this.state.lastFeeAt=Date.now();this.save();return}
   if(this.state.job){await this.advanceJob();return}
   if(this.state.event?.endsAt>Date.now())return;
@@ -50,9 +65,9 @@ export class LiveWorker{
   this.store.set('snapshot:'+id,snap);this.state.daily[today]=(spent+cost).toString();this.state.job={id,stage:'swap',packId:pack.id,code:pack.code,price:pack.price,cost:cost.toString(),payer:this.signer.publicKey.toBase58(),winner:winner.wallet,draw:winner,snapshotHash:snap.hash,snapshotSlot:snap.slot,createdAt:Date.now()};this.save();
  }catch(e){this.message='Integration paused; see operator status';this.lastError=e.message; // Never include secrets or full provider responses.
   // Ambiguous financial outcomes require reconciliation, never a fresh transaction.
-  const retryable=this.state.job?.stage!=='generating'&&(e.retryable||['TimeoutError','AbortError'].includes(e.name)||e.cause?.code?.startsWith('UND_ERR_')||['ECONNRESET','ETIMEDOUT','EAI_AGAIN'].includes(e.cause?.code));
-  if(retryable){this.message='Provider temporarily unavailable; retrying the recorded operation';return}
-  if(this.state.job||this.state.pendingFee){this.state.halted={at:Date.now(),reason:e.message};this.save()}
+  const retryable=this.state.job?.stage!=='generating'&&isTransient(e);
+  if(retryable){this.state.retryCount=(this.state.retryCount||0)+1;this.state.retryAt=Date.now()+Math.max(Number(e.retryAfterMs)||0,Math.min(300000,15000*2**Math.min(this.state.retryCount,5)));this.save();this.message='Provider cooldown; fees and current transaction are saved';return}
+  if(this.state.job||this.state.pendingFee){this.state.halted={at:Date.now(),reason:e.message};this.save();this.reportedHalt=false}
  }finally{this.busy=false}}
  async advanceJob(){const j=this.state.job;
   if(j.stage==='swap'){
@@ -86,6 +101,6 @@ export class LiveWorker{
  publicState(){const now=Date.now(),live=this.state.event?.endsAt>now?this.state.event:null,j=this.state.job;let event=live;
   if(j?.stage==='open')event={id:j.id,sequence:this.state.history.length+1,packId:j.packId,startedAt:j.startedAt,revealAt:now+60000,endsAt:now+120000,pull:null};
   if(event)event={...event,pull:now>=event.revealAt?event.pull:null};
-  return {mode:'live',status:this.state.halted?'paused':this.started?'active':!this.config.enabled?'disabled':'setup',message:this.message,serverTime:now,nextRoundAt:this.started?this.state.nextRoundAt:nextRoundAt(now),roundSeconds:60,nextPack:event?.packId||j?.packId||null,funded:0,feeBudgetLamports:this.state.feeBudget,tokenMint:this.config.mint||null,missing:this.config.missing,enabled:this.config.enabled,event,history:this.state.history.filter(e=>e.revealAt<=now).slice(-16).reverse(),catalog:this.catalog,catalogAt:this.catalogAt,catalogError:this.catalogError};
+  return {mode:'live',status:this.state.halted?'paused':this.started?'active':!this.config.enabled?'disabled':'setup',retryAt:this.state.retryAt||null,jobStage:j?.stage||null,message:this.message,serverTime:now,nextRoundAt:this.started?this.state.nextRoundAt:nextRoundAt(now),roundSeconds:60,nextPack:event?.packId||j?.packId||null,funded:0,feeBudgetLamports:this.state.feeBudget,tokenMint:this.config.mint||null,missing:this.config.missing,enabled:this.config.enabled,event,history:this.state.history.filter(e=>e.revealAt<=now).slice(-16).reverse(),catalog:this.catalog,catalogAt:this.catalogAt,catalogError:this.catalogError};
  }
 }
