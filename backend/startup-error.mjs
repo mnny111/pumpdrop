@@ -3,6 +3,8 @@ const known=new Set([
  'Treasury must be a valid Solana base58 private key or 64-byte JSON keypair array',
  'Set only one treasury key source',
  'Database belongs to a different token or treasury',
+ 'Reconcile pending fee collection before token migration',
+ 'Complete pending purchase before token migration',
  'Mainnet RPC required',
  'Token routes fees to cashback/holder rewards, not the creator treasury',
  'Fee-sharing token detected; this worker requires a direct creator treasury',

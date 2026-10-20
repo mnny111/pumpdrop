@@ -84,7 +84,7 @@ Deploy the latest main commit with the same token, treasury and persistent volum
 
 ## Verification and limits
 
-76 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
+82 local tests pass, including RPC backoff, cooldown persistence, rate-limit recovery, fee preservation across database reopen, exact weighted selection, holder aggregation, recipient checks, exact USDC payment, 60-second selection tiers, carryover, equal-price alternation, persistent transaction reuse, interrupted generation, reveal gating, and a mocked purchase-to-delivery flow. JavaScript syntax checks pass. The public mainnet Collector Crypt catalogue has been fetched successfully and the page displays real prices and artwork.
 
 Local tests do not use the deployed treasury key or API credentials. On 20 October 2026, the existing public mainnet $25 purchase and its finalized Metaplex Core delivery were inspected, and the new verifier confirmed the selected holder as the current on-chain asset owner. Deployed recovery and sustained unattended operation still require verification. Mock tests alone are not evidence of mainnet execution.
 
@@ -103,7 +103,7 @@ The current Jupiter integration uses the documented V1 ExactOut route for precis
 
 Set MAIN_TOKEN_MINT to the launched token and TREASURY_PRIVATE_KEY to the recipient treasury wallet. Configure fee redirection on Pump.fun itself; the app detects the sharing config automatically. No launch-wallet private key or new fee-mode variable is required. Keep the treasury dedicated and funded for transaction costs. Only distributions executed and journaled by this worker are credited: fees already claimed externally, manual transfers and unrelated deposits are not automatically imported.
 
-An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records always block identity changes and require reconciliation. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The website links to the supplied X account, @pumpcardsworld.
+An identity left behind by an unsuccessful setup can be replaced automatically only if the database has no funds, jobs, snapshots, transaction records or history. Existing financial records block unapproved identity changes; the explicit same-treasury carryover below is the only supported migration. The legacy pumpdrop.sqlite filename stays unchanged so the PumpCards rebrand cannot lose the ledger. The website links to the supplied X account, @pumpcardsworld.
 
 Fee-sharing support has local SDK/mocked regression coverage; the deployed recipient configuration and a funded distribution-to-pack cycle still need verification.
 
@@ -120,3 +120,16 @@ Delivery verification supports standard SPL post-token balances and uncompressed
 A saved `NFT ownership not verified in finalized delivery` pause in the open stage can resume only after the recorded purchase is finalized, the provider links that purchase to the expected asset and recipient, and on-chain verification passes. This recovery retrieves the existing pack result; it does not generate another checkout, sign a payment, alter fee accounting or select another holder.
 
 Layout references: https://github.com/metaplex-foundation/mpl-core/blob/main/clients/js/src/generated/instructions/transferV1.ts and https://github.com/metaplex-foundation/mpl-core/blob/main/clients/js/src/generated/accounts/assetV1.ts
+
+### Carry the fee ledger to a new token
+
+Set MAIN_TOKEN_MINT and CARRYOVER_TO_TOKEN_MINT to the same new public mint. Keep the same treasury private key, volume and DATA_DIR. Startup first validates the new token's creator/fee-sharing recipient configuration, then atomically records the old worker state in an audit entry and switches the stored identity. The remaining fee ledger, daily spending reservations, transaction journal, snapshots and history remain intact. This does not credit arbitrary treasury deposits.
+
+A paid pack already in the open stage keeps its old winner and original-token attribution; it finishes before any future pack job. New jobs snapshot MAIN_TOKEN_MINT holders. Pending fee claims and purchases that have not finalized block migration, as do treasury changes. The option only authorizes the exact destination mint and is idempotent on redeploy. Remove CARRYOVER_TO_TOKEN_MINT after the successful migration log. Keep today's spending cap in mind: migration does not reset the daily total.
+
+For the authorized migration:
+
+```dotenv
+MAIN_TOKEN_MINT=8n1bUSp2rmJZkLEqXzYZpwzCHTjRX3vZd1RjjsNGpump
+CARRYOVER_TO_TOKEN_MINT=8n1bUSp2rmJZkLEqXzYZpwzCHTjRX3vZd1RjjsNGpump
+```

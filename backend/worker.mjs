@@ -21,9 +21,12 @@ export class LiveWorker{
   process.once('exit',()=>{try{closeSync(this.lock);unlinkSync(this.lockPath)}catch{}});
   this.state=this.store.get('worker',this.state);
   this.startupStage='wallet';this.signer=loadTreasury(this.config);
-  this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()};this.store.assertIdentity(identity);
+  this.startupStage='identity';const identity={mint:this.config.mint,treasury:this.signer.publicKey.toBase58()},identityOptions={carryoverToMint:this.config.carryoverToMint};this.store.assertIdentity(identity,identityOptions);
   this.startupStage='rpc';this.connection=createRpcConnection(this.config.rpc);await requireMainnet(this.connection);
-  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();this.store.set('identity',identity);this.started=true;this.startupStage=null;
+  this.pump=new PumpFees(this.connection,this.signer,this.config.mint);this.transactions=new Transactions(this.connection,this.signer,this.store);this.jupiter=new Jupiter(this.config.jupKey);this.startupStage='collector';await this.cc.validateKey();this.startupStage='pump';await this.pump.inspect();
+  this.startupStage='identity';const migrated=this.store.commitIdentity(identity,identityOptions);this.state=this.store.get('worker',this.state);
+  if(migrated)console.log('Token migration committed: existing fee ledger and paid pack winner preserved');
+  this.started=true;this.startupStage=null;
  }
  save(){this.store.set('worker',this.state)}
  async recoverCoreDeliveryPause(){
@@ -98,7 +101,7 @@ export class LiveWorker{
   const cost=usdUnits(pack.price);
   const balance=BigInt(await this.connection.getBalance(this.signer.publicKey));if(balance<maximum+lamports(this.config.reserveSol)){this.message='Preserving treasury transaction reserve';return}
   const snap=await snapshotHolders(this.connection,this.config.mint,[this.signer.publicKey.toBase58(),...this.config.excluded],BigInt(this.config.minimum));const winner=weightedPick(snap.holders);const id=randomUUID();
-  this.store.set('snapshot:'+id,snap);this.state.daily[today]=(spent+cost).toString();this.state.job={id,stage:'swap',packId:pack.id,code:pack.code,price:pack.price,cost:cost.toString(),payer:this.signer.publicKey.toBase58(),winner:winner.wallet,draw:winner,snapshotHash:snap.hash,snapshotSlot:snap.slot,createdAt:Date.now()};this.save();
+  this.store.set('snapshot:'+id,snap);this.state.daily[today]=(spent+cost).toString();this.state.job={id,tokenMint:this.config.mint,stage:'swap',packId:pack.id,code:pack.code,price:pack.price,cost:cost.toString(),payer:this.signer.publicKey.toBase58(),winner:winner.wallet,draw:winner,snapshotHash:snap.hash,snapshotSlot:snap.slot,createdAt:Date.now()};this.save();
  }catch(e){this.message='Integration paused; see operator status';this.lastError=e.message; // Never include secrets or full provider responses.
   // Ambiguous financial outcomes require reconciliation, never a fresh transaction.
   const retryable=this.state.job?.stage!=='generating'&&isTransient(e);
@@ -130,7 +133,7 @@ export class LiveWorker{
    if(!await verifyOnChainDelivery(this.connection,delivery,j.winner))return;
    if(award.nft_address!==delivery.mint)throw Error('NFT result mismatch');
    const content=award.nftWon?.content;const image=award.nftWon?.image||content?.links?.image||content?.files?.[0]?.uri||null;
-   const e={id:j.id,sequence:this.state.history.length+1,packId:j.packId,startedAt:j.startedAt,revealAt:Date.now()+1500,endsAt:Date.now()+13500,winner:j.winner,snapshotSlot:j.snapshotSlot,snapshotHash:j.snapshotHash,draw:j.draw,memo:j.memo,purchaseSignature:j.purchaseSignature,deliverySignature:delivery.signature,pull:{name:content?.metadata?.name||'Collector Crypt collectible',image:image?.startsWith('https://')?image:null,icon:'◈',mint:delivery.mint}};
+   const e={id:j.id,tokenMint:j.tokenMint||this.config.mint,sequence:this.state.history.length+1,packId:j.packId,startedAt:j.startedAt,revealAt:Date.now()+1500,endsAt:Date.now()+13500,winner:j.winner,snapshotSlot:j.snapshotSlot,snapshotHash:j.snapshotHash,draw:j.draw,memo:j.memo,purchaseSignature:j.purchaseSignature,deliverySignature:delivery.signature,pull:{name:content?.metadata?.name||'Collector Crypt collectible',image:image?.startsWith('https://')?image:null,icon:'◈',mint:delivery.mint}};
    this.state.history.push(e);this.state.job=null;this.state.event=e;this.save();this.message='Collectible delivered to the selected holder';
   }
  }
